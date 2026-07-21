@@ -1,0 +1,40 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.tox/
+
+# Logs / local artefacts
+*.log
+uvicorn.err.log
+uvicorn.out.log
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code per-project harness state
+.claude/
+
+# Data / models / notebook checkpoints (large local-only files)
+# NOTE: leading `/` anchors to repo root so we don't accidentally match
+# `app/models/` (ORM layer) — that's tracked code, not ML weight artefacts.
+/data/
+/models/
+notebooks/.ipynb_checkpoints/

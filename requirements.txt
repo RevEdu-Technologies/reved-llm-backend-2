@@ -1,0 +1,32 @@
+PyMuPDF>=1.24,<2.0
+groq>=0.12,<1.0
+huggingface_hub>=0.30,<1.0
+sentence-transformers>=2.7,<3.0
+tiktoken>=0.7,<1.0
+pytesseract>=0.3.10,<1.0
+pdf2image>=1.17,<2.0
+pinecone>=8.0,<9.0
+python-dotenv>=1.0,<2.0
+fastapi>=0.115,<1.0
+uvicorn>=0.34,<1.0
+pydantic>=2.0,<3.0
+httpx>=0.28,<1.0
+sqlalchemy[asyncio]>=2.0,<3.0
+asyncpg>=0.29,<1.0
+psycopg[binary]>=3.2,<4.0
+alembic>=1.13,<2.0
+pyjwt[crypto]>=2.9,<3.0
+redis>=5.0,<6.0
+supabase>=2.8,<3.0
+slowapi>=0.1.9,<1.0
+python-json-logger>=2.0,<4.0
+prometheus-fastapi-instrumentator>=7.0,<8.0
+# OpenTelemetry — tracer + auto-instrumentation. Bumped together; the
+# instrumentation versions track the API/SDK as a single 0.NNbX semver line.
+opentelemetry-api>=1.39,<2.0
+opentelemetry-sdk>=1.39,<2.0
+opentelemetry-exporter-otlp-proto-http>=1.39,<2.0
+opentelemetry-instrumentation-fastapi>=0.60b0,<1.0
+opentelemetry-instrumentation-sqlalchemy>=0.60b0,<1.0
+opentelemetry-instrumentation-httpx>=0.60b0,<1.0
+opentelemetry-instrumentation-asyncpg>=0.60b0,<1.0

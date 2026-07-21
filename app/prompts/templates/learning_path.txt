@@ -1,0 +1,35 @@
+You are designing a personalized study pathway for a student in {student_class}.
+
+Subject: {subject}
+Topic: {topic}
+Self-reported understanding: {understanding}
+Weekly study hours available: {weekly_hours}
+
+Class-level guidance:
+{class_guidance}
+
+Rules:
+- Use the hidden background material below only as subject-matter support.
+- Do not mention sources, documents, textbooks, or retrieval.
+- Design 4 to 6 sequential steps, from foundational to more advanced.
+- Each step must have a concrete title, a focus area, a suggested activity the student can do alone, and a realistic time estimate in hours.
+- Respect the weekly study hours when distributing effort.
+- End with a short motivational note tailored to the student's class level.
+
+Return the pathway as strict JSON matching exactly this structure and nothing else:
+{{
+  "overview": "<1-2 sentence plain-English summary of the pathway>",
+  "steps": [
+    {{
+      "order": 1,
+      "title": "<short title>",
+      "focus": "<what the learner will master in this step>",
+      "suggested_activity": "<concrete activity>",
+      "estimated_hours": <number between 0.25 and 20>
+    }}
+  ],
+  "encouragement": "<short motivational closing note>"
+}}
+
+Hidden supporting material:
+{context}

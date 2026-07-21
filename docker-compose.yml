@@ -1,0 +1,94 @@
+# Local-development compose stack for the RevEd backend.
+#
+# Usage (from the repo root, RedEd/reved-llm-backend):
+#
+#   cp .env.example .env   # then fill in real Supabase / Groq / Pinecone keys
+#   docker compose -f docker/docker-compose.yml up --build
+#   curl http://localhost:8000/api/v1/health
+#
+# Notes
+#   - DATABASE_URL in .env points at Supabase by default. To use the local
+#     postgres service instead, set DATABASE_URL=postgresql://reved:reved@postgres:5432/reved
+#     in your .env (and run `alembic upgrade head` against it).
+#   - REDIS_URL is forced to the in-stack redis service so rate limits work
+#     even when the .env leaves REDIS_URL blank.
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: reved-backend:local
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      # Default the cache/rate-limit backend to the in-stack redis. Override
+      # in .env if you want memory-only for a quick run.
+      CACHE_BACKEND: ${CACHE_BACKEND:-redis}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Optional local Postgres — Supabase is the default in .env, but this is
+  # handy for offline development. Point DATABASE_URL at it to use it.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: reved
+      POSTGRES_PASSWORD: reved
+      POSTGRES_DB: reved
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reved -d reved"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles: ["local-db"]
+
+  # Outbound webhook dispatcher — drains the webhook_deliveries outbox.
+  # Opt-in (only needed if you use webhooks): `docker compose --profile webhooks up`.
+  # Reuses the api image; runs the dispatcher loop instead of uvicorn.
+  webhook-dispatcher:
+    image: reved-backend:local
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["python", "-m", "scripts.webhook_dispatcher"]
+    env_file:
+      - ../.env
+    depends_on:
+      - api
+    restart: unless-stopped
+    profiles: ["webhooks"]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

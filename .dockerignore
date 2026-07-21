@@ -1,0 +1,51 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*.pyo
+*.egg-info
+.eggs
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.tox
+.coverage
+htmlcov
+build
+dist
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+
+# Tests, notebooks, evaluation harness — not needed in the runtime image
+tests
+notebooks
+evaluation
+
+# Large local data / models / logs
+data
+models
+*.log
+uvicorn.err.log
+uvicorn.out.log
+
+# Editor / OS junk
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Docker artefacts themselves
+docker/Dockerfile*
+docker/docker-compose*.yml
+
+# Docs that don't ship in the image
+*.md
+!FRONTEND_INTEGRATION.md
+!FRONTEND_HANDOFF.md

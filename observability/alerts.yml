@@ -1,0 +1,72 @@
+# Prometheus alert rules for the RevEd backend.
+#
+# Drop into your Prometheus / Grafana Cloud rules tree:
+#   - Prometheus: copy under prometheus.yml `rule_files:` path
+#   - Grafana Cloud / Mimir: import via the Alerting → New rule group UI
+#
+# The three rules below are the Phase 4 minimum required by
+# plan-to-implement.md. Severity labels are advisory; map them onto
+# your routing config (PagerDuty, Slack, etc.).
+#
+# All rules use a 5-minute `for:` window so single-spike noise is
+# absorbed; real incidents will hold the condition past the window.
+
+groups:
+  - name: reved-backend
+    interval: 30s
+    rules:
+      - alert: HighFiveXxRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 0.001)
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Server-error rate > 1% for 5 minutes"
+          description: |
+            5xx responses are exceeding 1% of total traffic. Check the
+            most recent deploy and the `/api/v1/*` endpoint distribution
+            in the dashboard. Common causes: DB pool exhaustion, Groq
+            timeout, downstream Pinecone failure.
+          runbook_url: "../DEPLOY.md#9-rollback"
+
+      - alert: HighP95LatencyStudentAsk
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket{handler="/api/v1/student/ask"}[5m])) by (le)
+          ) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "p95 latency on /student/ask > 5s for 5 minutes"
+          description: |
+            Tutor responses are slow. Likely cause: Groq queueing or
+            Pinecone latency. Check the LLM-tokens panel — if token
+            spend is also up, Groq is the bottleneck. If tokens are
+            flat but latency is up, retrieval/RAG is the suspect.
+
+      - alert: AuthFailureSpike
+        expr: |
+          60 * sum(rate(reved_auth_events_total{event="jwt_decode",outcome="failure"}[5m])) > 50
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "JWT decode failures > 50 / min for 5 minutes"
+          description: |
+            Possible brute-force, mass token rotation, or a frontend
+            holding stale tokens after a SUPABASE_JWT_SECRET rotation.
+            Check the `reason` label distribution in audit logs:
+            - reason=expired              → likely stale tokens, self-heals
+            - reason=invalid_signature    → secret rotation or attack
+            - reason=invalid_audience     → frontend misconfig
+            - reason=decode_error         → likely tampering
+          runbook_url: "../DEPLOY.md#9-rollback"
