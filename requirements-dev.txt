@@ -1,3 +1,6 @@
+# pytest-asyncio<1.0 caps its own pytest dependency at <9, which conflicts
+# with the pytest>=9.0 pin below on any fresh install (no release in the
+# 0.x line supports pytest 9). Widened to admit the 1.x line, which does.
 pytest>=9.0,<10.0
-pytest-asyncio>=0.24,<1.0
+pytest-asyncio>=0.24,<2.0
 httpx>=0.28,<1.0

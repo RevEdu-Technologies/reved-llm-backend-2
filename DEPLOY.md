@@ -26,10 +26,12 @@ Before the first deploy you need accounts and credentials for:
 The full canonical list lives in [`.env.example`](.env.example). Grouped by criticality:
 
 **Required (app refuses to start without these):**
-- `DATABASE_URL` — Supabase pooler URL. URL-encode special chars in the password (`#` → `%23`, `/` → `%2F`, `@` → `%40`).
 - `GROQ_API_KEY`
 - `PINECONE_API_KEY`
 - `SUPABASE_JWT_SECRET` — required whenever `AUTH_ENABLED=true`.
+
+**Required for the app to actually be useful, but won't block startup:**
+- `DATABASE_URL` — Supabase pooler URL. URL-encode special chars in the password (`#` → `%23`, `/` → `%2F`, `@` → `%40`). If unset, the process still starts and binds its port (so it doesn't disappear behind the platform's edge proxy), but every database-backed route — and `GET /api/v1/health/ready` — fails with a `503 configuration_error` until it's configured. Check startup logs for a `DATABASE_URL is not set` warning.
 
 **Production hardening (must be set in staging/prod):**
 - `ENVIRONMENT=production` (or `staging`). The app **refuses to start** if `ENVIRONMENT` is production-like and `AUTH_ENABLED=false`.
@@ -193,8 +195,8 @@ standard `alembic upgrade head` (migration `a7c1e2f4b809`).
 
 | Path | Purpose | Suggested probe config |
 |---|---|---|
-| `GET /api/v1/health` | **Liveness** — confirms the process is up. Always returns 200 unless the worker is wedged. | Every 30s, fail after 3, timeout 5s. |
-| `GET /api/v1/health/ready` | **Readiness** — actually queries Postgres and Redis. Returns 200 if both report healthy, 200 with `data.status="degraded"` if any dep is down (the body tells you which). | Every 15s, fail after 3, timeout 5s. Only route traffic when ready. |
+| `GET /api/v1/health` (alias: `/api/v1/health/live`) | **Liveness** — confirms the process is up. Always returns 200 unless the worker is wedged. Never touches the database. | Every 30s, fail after 3, timeout 5s. |
+| `GET /api/v1/health/ready` | **Readiness** — actually queries Postgres and Redis. **Gates HTTP status on the database only**: 200 if Postgres is reachable (body carries `data.status="degraded"` if Redis alone is down — cache is a performance optimization, not a correctness dependency), **503** if Postgres is unreachable. A missing `DATABASE_URL` surfaces here too (see §2) rather than crashing the process. | Every 15s, fail after 3, timeout 5s. Only route traffic when ready — status-code probes (plain `httpGet`) now actually gate on this. |
 
 Kubernetes example:
 ```yaml

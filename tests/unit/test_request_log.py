@@ -126,6 +126,7 @@ async def test_duration_ms_is_positive_and_realistic(access_stream):
     "path",
     [
         "/api/v1/health",
+        "/api/v1/health/live",
         "/api/v1/health/ready",
         "/metrics",
         "/openapi.json",

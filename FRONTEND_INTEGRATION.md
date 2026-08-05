@@ -295,8 +295,8 @@ Examples: `"Primary 5"`, `"JSS2"`, `"SS3"`. Case-insensitive. Anything else → 
 
 | Path | Purpose |
 |---|---|
-| `GET /api/v1/health` | Liveness — 200 if process is up |
-| `GET /api/v1/health/ready` | Readiness — DB + cache + model config |
+| `GET /api/v1/health` (alias `/api/v1/health/live`) | Liveness — 200 if process is up. Never touches the database. |
+| `GET /api/v1/health/ready` | Readiness — DB + cache + model config. **200** when the database is reachable (`data.status` is `"ok"`, or `"degraded"` if only the cache is down — that's still a 200). **503** when the database is unreachable, with the RevEd error envelope (`code: "upstream_error"`, `data.details` carries the same per-dependency breakdown). Branch on HTTP status for pass/fail; read the body for detail. |
 
 ---
 

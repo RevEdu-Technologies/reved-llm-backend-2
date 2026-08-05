@@ -48,6 +48,7 @@ _REQUEST_ID_HEADER = "X-Request-Id"
 OBSERVABILITY_EXCLUDED_PATHS = frozenset(
     {
         "/api/v1/health",
+        "/api/v1/health/live",
         "/api/v1/health/ready",
         "/metrics",
         "/docs",

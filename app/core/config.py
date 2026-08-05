@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
 from app.core.secrets import load_secret
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigurationError(RuntimeError):
@@ -22,13 +25,6 @@ def _load_dotenv_if_available() -> None:
 
     repo_root = Path(__file__).resolve().parents[2]
     load_dotenv(repo_root / ".env", override=False)
-
-
-def _require_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if not value:
-        raise ConfigurationError(f"Missing required environment variable: {name}")
-    return value
 
 
 def _require_secret(name: str, fallback_env: str) -> str:
@@ -197,7 +193,22 @@ class Settings:
             "http://127.0.0.1:5173",
         ]
 
-        raw_database_url = _require_env("DATABASE_URL")
+        raw_database_url = os.getenv("DATABASE_URL", "").strip()
+        if not raw_database_url:
+            # Deliberately a warning, not a ConfigurationError: crashing the
+            # whole process here means Render/k8s never binds a port and
+            # *every* route — including /health and /health/ready — starts
+            # 503ing behind the platform's edge proxy, which is far harder
+            # to diagnose than a running app whose DB-backed routes fail
+            # individually. app.db.session.get_engine() raises a scoped
+            # ConfigurationError (-> HTTP 503, code=configuration_error) the
+            # first time something actually tries to touch the database, and
+            # GET /health/ready reports it as a database check failure.
+            logger.warning(
+                "DATABASE_URL is not set. The app will still start, but "
+                "every database-backed route (including GET /health/ready) "
+                "will fail until it is configured."
+            )
         settings = cls(
             environment=os.getenv("ENVIRONMENT", "development").strip() or "development",
             cors_allowed_origins=tuple(_get_list("CORS_ALLOWED_ORIGINS", default_origins)),

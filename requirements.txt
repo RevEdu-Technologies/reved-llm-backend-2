@@ -20,7 +20,14 @@ redis>=5.0,<6.0
 supabase>=2.8,<3.0
 slowapi>=0.1.9,<1.0
 python-json-logger>=2.0,<4.0
-prometheus-fastapi-instrumentator>=7.0,<8.0
+# >=8.0.2 required: 7.x crashes on every request with
+# `AttributeError: '_IncludedRouter' object has no attribute 'path'` once
+# fastapi>=0.137 is resolved (FastAPI's include_router() refactor wraps
+# included routers in _IncludedRouter, which 7.x's route-name resolver
+# doesn't handle). 8.0.1 fixed it; pin to 8.0.2+ for the follow-up patch.
+# This also pulls in instrumentator's own fastapi>=0.133 floor, which is
+# satisfied by our existing `fastapi>=0.115,<1.0` range.
+prometheus-fastapi-instrumentator>=8.0.2,<9.0
 # OpenTelemetry — tracer + auto-instrumentation. Bumped together; the
 # instrumentation versions track the API/SDK as a single 0.NNbX semver line.
 opentelemetry-api>=1.39,<2.0

@@ -93,3 +93,46 @@ def test_is_production_like_flag() -> None:
     assert _make_settings(environment="production").is_production_like is True
     assert _make_settings(environment="STAGING").is_production_like is True
     assert _make_settings(environment="prod").is_production_like is True
+
+
+class TestFromEnvMissingDatabaseUrl:
+    """DATABASE_URL absence must warn, not crash ``Settings.from_env()``.
+
+    Regression coverage for the Render outage where a missing DATABASE_URL
+    raised ConfigurationError at import time, so the process never bound a
+    port and every route -- including the health checks -- 503'd behind the
+    platform's edge proxy.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _minimal_valid_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Everything from_env() needs *besides* DATABASE_URL.
+        monkeypatch.setenv("GROQ_API_KEY", "groq-test")
+        monkeypatch.setenv("PINECONE_API_KEY", "pc-test")
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        # Never read a real .env file into the test process.
+        monkeypatch.setattr(
+            "app.core.config._load_dotenv_if_available", lambda: None
+        )
+
+    def test_missing_database_url_does_not_raise(self) -> None:
+        settings = Settings.from_env()  # must not raise
+        assert settings.database_url == ""
+        assert settings.database_sync_url == ""
+
+    def test_missing_database_url_logs_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("WARNING", logger="app.core.config"):
+            Settings.from_env()
+        assert any("DATABASE_URL is not set" in r.message for r in caplog.records)
+
+    def test_present_database_url_is_normalized_for_async(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(
+            "DATABASE_URL", "postgresql://u:p@h:5432/db"
+        )
+        settings = Settings.from_env()
+        assert settings.database_url == "postgresql+asyncpg://u:p@h:5432/db"
+        assert settings.database_sync_url == "postgresql+psycopg://u:p@h:5432/db"

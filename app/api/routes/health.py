@@ -6,13 +6,14 @@ import asyncio
 import logging
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.core.config import get_settings
 from app.db.session import get_engine
 from app.schemas.common import APIResponse
 from app.utils.cache import get_cache
-from app.utils.response_builder import success_response
+from app.utils.response_builder import error_response, success_response
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,17 @@ async def _check_cache() -> dict[str, object]:
     summary="Liveness probe",
     description="Lightweight health check — returns OK if the process is up.",
 )
+@router.get(
+    "/health/live",
+    response_model=APIResponse[dict],
+    summary="Liveness probe",
+    description=(
+        "Alias of GET /health for infra that expects an explicit /live path "
+        "(e.g. k8s livenessProbe convention). Same behavior: never touches "
+        "the database, returns OK whenever the process can serve a request."
+    ),
+    include_in_schema=False,
+)
 async def health_check() -> APIResponse[dict]:
     return success_response(
         role="system",
@@ -58,26 +70,47 @@ async def health_check() -> APIResponse[dict]:
     "/health/ready",
     response_model=APIResponse[dict],
     summary="Readiness probe",
-    description="Reports downstream dependency health (database, cache, config).",
+    description=(
+        "Reports downstream dependency health (database, cache, config). "
+        "Gates HTTP status on the database only: 200 when the database is "
+        "reachable (even if the cache is degraded — cache is a performance "
+        "optimization, not a correctness dependency), 503 when the database "
+        "is unreachable. Infra readiness probes should key off the status "
+        "code; the response body always carries the full per-dependency "
+        "breakdown for humans/dashboards."
+    ),
 )
-async def readiness() -> APIResponse[dict]:
+async def readiness() -> JSONResponse:
     settings = get_settings()
     db_check, cache_check = await asyncio.gather(_check_database(), _check_cache())
-    ready = db_check.get("status") == "ok" and cache_check.get("status") == "ok"
+    db_ok = db_check.get("status") == "ok"
+    cache_ok = cache_check.get("status") == "ok"
+    checks = {
+        "database": db_check,
+        "cache": cache_check,
+        "config": {
+            "pinecone_index": settings.pinecone_index_name,
+            "groq_model": settings.groq_model,
+            "embedding_model": settings.hf_embedding_model,
+        },
+    }
+
+    if not db_ok:
+        envelope = error_response(
+            role="system",
+            code="upstream_error",
+            message="Database is unreachable.",
+            details=checks,
+        )
+        return JSONResponse(status_code=503, content=envelope.model_dump(mode="json"))
+
     payload: dict[str, object] = {
-        "status": "ok" if ready else "degraded",
+        "status": "ok" if cache_ok else "degraded",
         "environment": settings.environment,
         "auth_enabled": settings.auth_enabled,
         "cache_backend": settings.cache_backend,
-        "checks": {
-            "database": db_check,
-            "cache": cache_check,
-            "config": {
-                "pinecone_index": settings.pinecone_index_name,
-                "groq_model": settings.groq_model,
-                "embedding_model": settings.hf_embedding_model,
-            },
-        },
+        "checks": checks,
     }
-    message = "All systems operational." if ready else "One or more dependencies are degraded."
-    return success_response(role="system", data=payload, message=message)
+    message = "All systems operational." if cache_ok else "Database is healthy; cache is degraded."
+    envelope = success_response(role="system", data=payload, message=message)
+    return JSONResponse(status_code=200, content=envelope.model_dump(mode="json"))

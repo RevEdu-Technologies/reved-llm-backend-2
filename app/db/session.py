@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.core.config import get_settings
+from app.core.config import ConfigurationError, get_settings
 
 
 @lru_cache(maxsize=1)
@@ -34,9 +34,19 @@ def get_engine() -> AsyncEngine:
     overhead — fine for our load (audit-log writes), much better than
     falling back to direct port 5432 which exhausts Postgres connection
     slots under concurrency.
+
+    Raises ``ConfigurationError`` (-> HTTP 503, ``code=configuration_error``,
+    see ``app.api.error_handlers``) if ``DATABASE_URL`` was never set.
+    ``app.core.config`` intentionally lets the app boot without it so a
+    misconfigured deploy fails per-request instead of never binding a port —
+    this is where that deferred failure actually surfaces.
     """
 
     settings = get_settings()
+    if not settings.database_url:
+        raise ConfigurationError(
+            "DATABASE_URL is not configured; cannot create a database engine."
+        )
     return create_async_engine(
         settings.database_url,
         pool_size=settings.database_pool_size,
@@ -89,7 +99,16 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
 
 
 async def dispose_engine() -> None:
-    """Dispose the cached engine (call on application shutdown)."""
+    """Dispose the cached engine (call on application shutdown).
 
-    engine = get_engine()
+    A no-op if no engine was ever created — e.g. the app booted without
+    ``DATABASE_URL`` and no request ever called ``get_engine()``. Without
+    this guard, shutdown would itself raise ``ConfigurationError`` trying
+    to lazily create an engine just to dispose it.
+    """
+
+    try:
+        engine = get_engine()
+    except ConfigurationError:
+        return
     await engine.dispose()
