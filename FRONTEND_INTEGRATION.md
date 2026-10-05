@@ -11,6 +11,82 @@ file** — don't hand-maintain them. See §13 for the recommended workflow.
 
 ---
 
+## Endpoint inventory (quick reference)
+
+Every path is relative to `/api/v1`. "Response mode" is JSON (standard RevEd
+envelope, §4) unless noted. Two SSE styles are in play — both confirmed via
+the health check's Groq/Pinecone config, since every AI endpoint below is
+RAG-grounded against the Pinecone corpus before Groq generates the answer:
+
+1. **RevEd `meta`/`chunk`/`done` SSE** (`/student/ask/stream`,
+   `/teacher/lesson-notes/stream`, `/parent/explain-topic/stream`) — a
+   custom 3-event grammar; full contract + browser fetch/ReadableStream
+   snippet in §9.1a.
+2. **OpenAI-style chat-completions SSE** (`/teacher/generate-content` only)
+   — `data: {"choices":[{"delta":{"content":"..."}}]}` frames terminated by
+   `data: [DONE]`; contract in §10.1b.
+
+Every *non-streaming* AI endpoint (`/student/ask`, `/teacher/quiz`,
+`/teacher/student-feedback`, `/student/learning-path`,
+`/student/career-guidance`, `/parent/explain-topic`, and the `/stream`
+endpoints' non-streaming siblings) returns a single structured JSON object
+in the standard envelope — no partial results, no polling. First-token /
+full-response latency can be 15–60s on cold model load either way; always
+render a loading state.
+
+Every listed endpoint is implemented and live; nothing here is a stub.
+
+| Method & path | Role required | Purpose | Response mode | Docs |
+|---|---|---|---|---|
+| `GET /health` (alias `/health/live`) | none | Liveness | JSON | §8 |
+| `GET /health/ready` | none | Readiness (DB/cache) | JSON | §8 |
+| `POST /student/ask` | student, admin | Grounded Q&A | JSON | §9.1 |
+| `POST /student/ask/stream` | student, admin | Same, streamed | SSE `meta`/`chunk`/`done` | §9.1a |
+| `GET /student/conversations` | student, admin | List chat threads | JSON | §9.2 |
+| `GET /student/conversations/{id}/history` | student, admin | Replay a thread | JSON | §9.3 |
+| `POST /student/learning-path` | student, admin | Personalized pathway | JSON | §9.4 |
+| `POST /student/career-guidance` | student, admin | Career suggestions | JSON | §9.5 |
+| `POST /student/goals` | student, admin | Create a goal | JSON | §9.6 |
+| `GET /student/goals/{student_id}` | student, admin | List a student's goals | JSON | §9.6 |
+| `PATCH /student/goals/{goal_id}/progress` | student, admin | Update goal progress | JSON | §9.6 |
+| `POST /student/study-groups` | student, admin | Create a study group | JSON | §9.7 |
+| `POST /student/study-groups/{group_id}/join` | student, admin | Join a study group | JSON | §9.7 |
+| `GET /student/study-groups` | student, admin | Browse study groups | JSON | §9.7 |
+| `POST /student/study-groups/{group_id}/facilitate` | student, admin | AI discussion prompts | JSON | §9.7 |
+| `GET /student/generations` | student, admin | List saved generations | JSON | §9.8 |
+| `GET /student/generations/{id}` | student, admin | Fetch one generation | JSON | §9.8 |
+| `POST /teacher/lesson-notes` | teacher, admin | Generate lesson notes | JSON | §10.1 |
+| `POST /teacher/lesson-notes/stream` | teacher, admin | Same, streamed | SSE `meta`/`chunk`/`done` | §10.1a |
+| `POST /teacher/generate-content` | teacher, admin | Markdown teaching material | SSE, OpenAI-style | §10.1b |
+| `POST /teacher/quiz` | teacher, admin | Generate a quiz + marking guide | JSON | §10.2 |
+| `POST /teacher/student-feedback` | teacher, admin | Feedback on a submission | JSON | §10.3 |
+| `GET /teacher/class-progress` | teacher, admin | Class activity rollup | JSON | §10.4 |
+| `GET /teacher/generations` | teacher, admin | List saved generations | JSON | §10.5 |
+| `GET /teacher/generations/{id}` | teacher, admin | Fetch one generation | JSON | §10.5 |
+| `POST /parent/explain-topic` | parent, admin | Explain a topic | JSON | §11.1 |
+| `POST /parent/explain-topic/stream` | parent, admin | Same, streamed | SSE `meta`/`chunk`/`done` | §11.1a |
+| `GET /parent/child-activity` | parent, admin | Linked children's activity | JSON | §11.2 |
+| `GET /parent/generations` | parent, admin | List saved generations | JSON | §11.3 |
+| `GET /parent/generations/{id}` | parent, admin | Fetch one generation | JSON | §11.3 |
+| `POST /admin/teachers/setup` | admin | Provision a teacher | JSON | §12.1 |
+| `POST /admin/parents/setup` | admin | Provision a parent | JSON | §12.1 |
+| `POST /admin/classes/{class_id}/roster` | admin | Enrol students in a class | JSON | §12.1 |
+| `GET /admin/usage-summary` | admin | Platform usage stats | JSON | §12.2 |
+| `GET /admin/content-stats` | admin | Corpus/index stats | JSON | §12.2 |
+| `POST /admin/notifications` | admin | Push a notification to a user | JSON | §12.3 |
+| `GET /notifications` | any authenticated | List own notifications | JSON | §14 |
+| `PATCH /notifications/{id}/read` | any authenticated | Mark one read | JSON | §14 |
+| `PATCH /notifications/mark-all-read` | any authenticated | Mark all read | JSON | §14 |
+| `POST /webhooks/subscriptions` | admin | Register a webhook (returns `201`) | JSON | [`WEBHOOKS.md`](WEBHOOKS.md) |
+| `GET /webhooks/subscriptions` | admin | List webhook subscriptions | JSON | [`WEBHOOKS.md`](WEBHOOKS.md) |
+| `DELETE /webhooks/subscriptions/{id}` | admin | Deactivate a webhook | JSON | [`WEBHOOKS.md`](WEBHOOKS.md) |
+
+**Not implemented / no route exists for:** login, signup, password reset, token refresh, logout, generic user/profile CRUD (`/users/*`, `/auth/*`) — these are Supabase Auth's job, not this backend's (§3). There is also no generic `/students`, `/teachers`, or `/parents` listing/CRUD API — student/teacher/parent rows are only ever created via `/admin/*/setup` (§12.1) and read back through the role-scoped aggregate endpoints above (`/teacher/class-progress`, `/parent/child-activity`, etc.), not a REST resource collection. See §17 for the full "not yet in the API" list.
+
+Every response status code is **`200`** except `POST /webhooks/subscriptions`, which is **`201 Created`** (it mints a new resource with a one-time secret). Nothing in this API returns `204`.
+
+---
+
 ## 1. Base URL & environment
 
 | Environment | Base URL |
@@ -33,6 +109,25 @@ uvicorn main:app --reload --port 8000
 Interactive API docs (auto-generated from the schema):
 - Swagger UI: `http://localhost:8000/docs`
 - OpenAPI JSON: `http://localhost:8000/openapi.json`
+
+### 1.1 Required / optional headers
+
+Every request (all environments):
+
+| Header | Value | Required when |
+|---|---|---|
+| `Content-Type` | `application/json` | Any request with a JSON body (POST/PATCH/PUT). Not needed on GET/DELETE. |
+| `Accept-Language` | e.g. `fr`, `en`, `fr-FR,fr;q=0.9` | Optional, any request. Localizes the `message` field on **error** responses only (`en`/`fr` today; see §5.0). Omit for English. |
+
+Auth (see §3 for the full decision table):
+
+| Header | Value | Required when |
+|---|---|---|
+| `Authorization` | `Bearer <supabase-access-token>` | `AUTH_ENABLED=true` (staging/production) — every request. |
+| `X-Dev-Role` | `student` \| `teacher` \| `parent` \| `admin` | Optional, `AUTH_ENABLED=false` (dev) only. Ignored in production. |
+| `X-Dev-Tier` | `free` \| `basic` \| `premium` \| `unlimited` | Optional, `AUTH_ENABLED=false` only — exercises tiered LLM rate limits locally (§5.1). Ignored in production. |
+
+There is **no API key header** and no session cookie — the bearer JWT (or, in dev, `X-Dev-Role`) is the entire auth story. `credentials: "include"` is not required on `fetch()`; the API doesn't use cookies.
 
 ---
 
@@ -67,6 +162,10 @@ Two modes, controlled by `AUTH_ENABLED`:
 | `false` (default in dev) | Every request is auto-authenticated as a stub user. Frontend can call any endpoint without a token. **`X-Dev-Role` header** flips the stub's role for testing. |
 | `true` (production)      | Every request must include a valid Supabase JWT in `Authorization: Bearer <token>`. Missing/invalid → `401`. `X-Dev-Role` is **ignored**. |
 
+> **Is auth bypassed globally, or only on some routes?** Globally — when `AUTH_ENABLED=false` there is no protected/unprotected split; *every* route on this backend, including admin ones, accepts unauthenticated requests and honors `X-Dev-Role`. There's no per-route opt-in. This is intentionally an all-or-nothing switch: `Settings.validate()` (`app/core/config.py`) refuses to let the **process start at all** if `ENVIRONMENT` is `production`/`staging` and `AUTH_ENABLED=false`, so this bypass cannot silently reach a deployed environment — it's a hard startup crash, not a runtime check the frontend needs to account for.
+>
+> **There is no `POST /auth/login` (or any login/signup/refresh endpoint) on this backend.** Authentication is entirely delegated to Supabase: the frontend uses `@supabase/supabase-js` directly against your Supabase project for sign-in/sign-up/session refresh/sign-out, and the SDK owns token storage (its default storage adapter persists the session — access + refresh token — in `localStorage` under a `sb-<project-ref>-auth-token` key, and silently refreshes it). This backend **never sees a password or handles a login form** — it only ever receives the already-issued `access_token` on the `Authorization` header and verifies its signature (§3.1). Don't build a login screen that posts credentials to this API; point it at Supabase Auth (`supabase.auth.signInWithPassword(...)`, magic links, OAuth, etc.) instead.
+
 ### 3.1 Production: Supabase JWT
 
 ```ts
@@ -80,6 +179,8 @@ const supabase = createClient(
 const { data: { session } } = await supabase.auth.getSession();
 const token = session?.access_token;
 ```
+
+Attach `token` as `Authorization: Bearer ${token}` on every request to this backend (see the `apiFetch` wrapper in §15, which does this for you). Don't cache the token yourself — call `supabase.auth.getSession()` (or subscribe to `supabase.auth.onAuthStateChange`) right before each request, or keep it in memory refreshed via the listener; the SDK rotates the access token automatically before it expires (Supabase's default JWT lifetime is 1 hour), and a stale copy you cached separately will start failing with `401` before the SDK's own copy does.
 
 The backend resolves the RevEd role from the JWT in this priority order:
 
@@ -208,6 +309,37 @@ type ErrorDetails = {
 
 Render `message` to users; use `code` for branching. **`code` is
 locale-independent — always branch on `code`, never on `message`.**
+
+**Confirmed: every 4xx and 5xx this API can return uses this exact shape**
+— it's produced by one centralized handler set
+(`app/api/error_handlers.py`), registered once for the whole app, so there
+is no route-specific error format to special-case:
+
+```json
+{
+  "status": "error",
+  "data": { "code": "not_found", "details": null },
+  "message": "The requested resource was not found.",
+  "role": "student"
+}
+```
+
+One correction if you're building a global interceptor off this shape:
+**`role` is not always `"system"`** — it's derived from the request path
+(`student`/`teacher`/`parent`/`admin` when the path contains that segment,
+`"system"` otherwise — e.g. health checks or a 404 on a completely unknown
+path). Don't branch on it; it's informational only. Always branch on
+`data.code`. `data.details` is `null` unless the error carries structured
+extras (validation field errors, the readiness check breakdown on
+`upstream_error` from `/health/ready`, etc.) — treat it as optional, typed
+`unknown`, and only read into it after checking `code`.
+
+This is also the format for the two safety-net handlers that don't map to a
+row in the table above: an unmatched route falls through to `http_error`
+with the path's actual HTTP status (typically `404`), and any truly
+unexpected exception falls through to `internal_error` / `500` — the
+frontend never sees a raw stack trace or a non-JSON error body from this
+API, in dev or production.
 
 ### 5.0 Localized messages (`Accept-Language`)
 
@@ -543,6 +675,26 @@ type CareerGuidanceResponse = {
 | `GET` | `/student/goals/{student_id}` | — |
 | `PATCH` | `/student/goals/{goal_id}/progress` | `{ progress_percent, note? }` |
 
+`POST` and `PATCH` both return a single `GoalResponse`; `GET` returns a `GoalListResponse`. Ownership mismatches (`student_id`/`goal_id` the caller doesn't own) return `404`, not `403` — see §5.
+
+```ts
+type GoalResponse = {
+  id: string;
+  student_id: string;
+  title: string;
+  description: string | null;
+  subject: string | null;               // canonical snake_case, or null
+  target_date: string | null;            // ISO date (YYYY-MM-DD)
+  progress_percent: number;              // 0-100
+  status: "active" | "completed";
+  coaching_note: string;                 // AI-generated encouragement/next-step
+  created_at: string;                    // ISO datetime
+  updated_at: string;
+};
+
+type GoalListResponse = { student_id: string; goals: GoalResponse[] };
+```
+
 ### 9.7 Study groups
 
 | Method | Path | Body |
@@ -551,6 +703,31 @@ type CareerGuidanceResponse = {
 | `POST` | `/student/study-groups/{group_id}/join` | `{ student_id }` |
 | `GET` | `/student/study-groups?student_class=...&subject=...` | — |
 | `POST` | `/student/study-groups/{group_id}/facilitate` | `{ focus_question }` |
+
+`POST /study-groups` and `POST .../join` both return a `StudyGroupResponse`; `GET` returns a `StudyGroupListResponse`; `POST .../facilitate` returns a `StudyGroupDiscussionResponse`. As with goals, acting on behalf of another student (`creator_student_id`/`student_id` not owned by the caller) or a group the caller isn't a member of returns `404`.
+
+```ts
+type StudyGroupResponse = {
+  id: string;
+  name: string;
+  subject: string;
+  topic: string;
+  student_class: string;
+  creator_student_id: string;
+  member_student_ids: string[];
+  created_at: string;                    // ISO datetime
+};
+
+type StudyGroupListResponse = { groups: StudyGroupResponse[] };
+
+type StudyGroupDiscussionResponse = {
+  group_id: string;
+  focus_question: string;
+  opening_prompt: string;
+  discussion_questions: string[];
+  shared_insight: string;
+};
+```
 
 ### 9.8 Saved AI generations
 
@@ -1030,6 +1207,60 @@ type MarkAllReadResponse = { marked: number };
 ```
 
 Use the `unread_count` field as the bell-icon badge.
+
+---
+
+## 14a. Core data models
+
+There is **no generic `User`, `Student`, `Teacher`, `Parent`, `Admin`, or
+`Session` object returned by this API** — don't build TypeScript types by
+that name expecting a REST resource behind them. What exists instead:
+
+- **`Session` / login state** is entirely a Supabase concept — use the
+  `Session` type from `@supabase/supabase-js` (`supabase.auth.getSession()`).
+  This backend never returns one (§3).
+- **The JWT claims** (what `supabase.auth.getSession().data.session.access_token`
+  decodes to, once your access-token hook from §3.1 is installed) are what
+  this backend actually reads to resolve identity:
+
+  ```ts
+  type RevEdJwtClaims = {
+    sub: string;                          // user_id (UUID) — becomes AuthenticatedUser.user_id
+    email?: string;
+    aud: "authenticated";
+    exp: number;
+    user_role?: "student" | "teacher" | "parent" | "admin";   // set by your access-token hook
+    subscription_tier?: "free" | "basic" | "premium" | "unlimited";
+    app_metadata?: { role?: string; user_role?: string };     // fallback if you provision here instead
+    user_metadata?: { role?: string; user_role?: string };
+  };
+  ```
+
+  Priority order for role/tier resolution is in §3.1/§5.1. If none of the
+  claim locations resolve, role defaults to `"student"` and tier to `"free"`
+  — the least-privileged outcome, never the most.
+
+- **Student / Teacher / Parent rows are never returned wholesale.** They're
+  created only via `/admin/*/setup` (§12.1, request-only — the response is
+  just the new IDs) and surfaced only as partial, role-scoped projections
+  inside aggregate endpoints:
+  - A student, from a parent's view: `ChildActivitySummary` (§11.2).
+  - A teacher's own scope: `ClassProgressResponse.teacher_user_id` (§10.4) —
+    no name/email, just the id and their aggregated activity.
+  - There is no `GET /admin/students`, `/admin/teachers`, or `/admin/parents`
+    listing endpoint today (see §17).
+- **AI generations** (lesson notes, quizzes, learning paths, etc.) share one
+  pair of shapes across all three roles — `AIGenerationSummary` /
+  `AIGenerationDetail` — already defined in §13. Don't redefine per role.
+- **Notifications** — `NotificationOut`, defined in §14.
+- **Goals / study groups** — `GoalResponse` / `StudyGroupResponse` and
+  friends, defined in §9.6 / §9.7.
+
+If you need a literal, per-field DB reference (not an API contract) for
+schema/migration work, that lives in `app/models/*.py` in this repo — it's
+intentionally not duplicated here, since large chunks of it (password
+hashes, internal foreign keys, etc.) are never serialized into any API
+response and would be actively misleading as a "frontend data model."
 
 ---
 
