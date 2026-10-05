@@ -59,6 +59,14 @@ class AIGeneration(Base, TimestampMixin):
     subject: Mapped[str | None] = mapped_column(String(64), nullable=True)
     student_class: Mapped[str | None] = mapped_column(String(32), nullable=True)
     topic: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    term: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, doc="Academic term (1-3) this artefact was generated for."
+    )
+    week: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Teaching week within the term (matches /teacher/scheme-of-work week numbering).",
+    )
     title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     request_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     response_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
