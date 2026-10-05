@@ -22,6 +22,7 @@ from app.services.teacher.feedback_service import TeacherFeedbackService
 from app.services.teacher.lesson_plan_service import TeacherLessonPlanService
 from app.services.teacher.progress_service import TeacherProgressService
 from app.services.teacher.quiz_service import TeacherQuizService
+from app.services.teacher.scheme_of_work_service import TeacherSchemeOfWorkService
 from app.services.parent.communication_service import ParentExplainService
 from app.services.parent.report_service import ParentActivityService
 from app.services.admin.analytics_service import AdminStatsService
@@ -103,6 +104,13 @@ def get_progress_service() -> TeacherProgressService:
     """Return a cached TeacherProgressService instance."""
 
     return TeacherProgressService.from_settings(get_settings())
+
+
+@lru_cache(maxsize=1)
+def get_scheme_of_work_service() -> TeacherSchemeOfWorkService:
+    """Return a cached TeacherSchemeOfWorkService instance."""
+
+    return TeacherSchemeOfWorkService.from_settings(get_settings(), repo_root=_REPO_ROOT)
 
 
 # --- Parent services -----------------------------------------------------

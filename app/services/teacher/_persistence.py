@@ -43,6 +43,8 @@ async def persist_generation(
     request_payload: BaseModel | dict[str, Any],
     response_payload: BaseModel | dict[str, Any],
     sources: list[str] | None,
+    term: int | None = None,
+    week: int | None = None,
 ) -> uuid.UUID | None:
     """Insert an ai_generations row. Returns the new id, or None on failure."""
 
@@ -59,6 +61,8 @@ async def persist_generation(
                     subject=subject,
                     student_class=student_class,
                     topic=topic,
+                    term=term,
+                    week=week,
                     title=title,
                     request_payload=_model_dump(request_payload),
                     response_payload=_model_dump(response_payload),
@@ -179,6 +183,8 @@ async def list_generations_for_user(
                         "subject": r.subject,
                         "student_class": r.student_class,
                         "topic": r.topic,
+                        "term": r.term,
+                        "week": r.week,
                         "conversation_id": r.conversation_id,
                         "sources": list(r.sources or []),
                         "created_at": r.created_at,
@@ -235,6 +241,8 @@ async def get_generation_for_user(
                 "subject": row.subject,
                 "student_class": row.student_class,
                 "topic": row.topic,
+                "term": row.term,
+                "week": row.week,
                 "conversation_id": row.conversation_id,
                 "sources": list(row.sources or []),
                 "request_payload": dict(row.request_payload or {}),

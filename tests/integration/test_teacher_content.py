@@ -27,7 +27,7 @@ class _StubContentService:
         self.last_request: TeacherContentRequest | None = None
 
     async def generate_stream(
-        self, request: TeacherContentRequest
+        self, request: TeacherContentRequest, *, user_id: uuid.UUID | None = None
     ) -> AsyncIterator[str]:
         self.last_request = request
         for delta in self._deltas:

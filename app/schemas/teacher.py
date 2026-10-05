@@ -131,6 +131,17 @@ class TeacherContentRequest(BaseModel):
         description="Optional curriculum standard to align to (e.g. WAEC, NERDC).",
     )
     tone: ContentTone = Field(default="engaging")
+    term: int | None = Field(
+        default=None,
+        ge=1,
+        le=3,
+        description="Academic term (1-3). Optional — grounds generation in the scheme-of-work week and is stored on the generation record.",
+    )
+    week: int | None = Field(
+        default=None,
+        ge=1,
+        description="Teaching week within the term, matching /teacher/scheme-of-work numbering. Optional.",
+    )
 
     @field_validator("subject", mode="before")
     @classmethod
@@ -199,6 +210,17 @@ class LessonNotesRequest(BaseModel):
             "omitted, the backend generates a new id and returns it."
         ),
     )
+    term: int | None = Field(
+        default=None,
+        ge=1,
+        le=3,
+        description="Academic term (1-3). Optional — grounds the note in the scheme-of-work week and is stored on the generation record.",
+    )
+    week: int | None = Field(
+        default=None,
+        ge=1,
+        description="Teaching week within the term, matching /teacher/scheme-of-work numbering. Optional.",
+    )
 
     @field_validator("subject", mode="before")
     @classmethod
@@ -217,6 +239,8 @@ class LessonNotesResponse(BaseModel):
     topic: str
     subject: str
     student_class: str
+    term: int | None = Field(default=None)
+    week: int | None = Field(default=None)
     learning_objectives: list[str] = Field(default_factory=list)
     overview: str = Field(default="")
     sections: list[LessonSection] = Field(default_factory=list)
@@ -400,11 +424,13 @@ class TeacherGenerationSummary(BaseModel):
     """One row in the teacher's recent-generations list."""
 
     generation_id: uuid.UUID
-    generation_type: Literal["lesson_notes", "quiz", "student_feedback"]
+    generation_type: Literal["lesson_notes", "quiz", "student_feedback", "content"]
     title: str
     subject: str | None = None
     student_class: str | None = None
     topic: str | None = None
+    term: int | None = None
+    week: int | None = None
     conversation_id: uuid.UUID | None = None
     sources: list[str] = Field(default_factory=list)
     created_at: datetime
@@ -429,14 +455,44 @@ class TeacherGenerationDetail(BaseModel):
     """
 
     generation_id: uuid.UUID
-    generation_type: Literal["lesson_notes", "quiz", "student_feedback"]
+    generation_type: Literal["lesson_notes", "quiz", "student_feedback", "content"]
     title: str
     subject: str | None = None
     student_class: str | None = None
     topic: str | None = None
+    term: int | None = None
+    week: int | None = None
     conversation_id: uuid.UUID | None = None
     sources: list[str] = Field(default_factory=list)
     request_payload: dict[str, Any] = Field(default_factory=dict)
     response_payload: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+
+
+# --- Scheme of work --------------------------------------------------------
+
+
+class SchemeOfWorkWeek(BaseModel):
+    """One teaching week's entry in a term's scheme of work."""
+
+    week: int = Field(..., ge=1, description="Teaching week number within the term (1-based; break weeks are not counted).")
+    topic: str = Field(..., description="The week's topic. 'Revision' or 'Examination' for end-of-term weeks.")
+    subtopics: list[str] = Field(default_factory=list)
+    objectives: list[str] = Field(default_factory=list)
+
+
+class SchemeOfWorkResponse(BaseModel):
+    """Weekly topic breakdown for one (subject, class, term)."""
+
+    subject: str
+    student_class: str
+    term: int = Field(..., ge=1, le=3)
+    weeks: list[SchemeOfWorkWeek] = Field(default_factory=list)
+    note: str = Field(
+        default=(
+            "Generated from curriculum-grounded retrieval + general NERDC/WAEC/NECO "
+            "knowledge, not an ingested official scheme-of-work document. Verify "
+            "against your school's approved scheme before relying on week numbering."
+        ),
+    )

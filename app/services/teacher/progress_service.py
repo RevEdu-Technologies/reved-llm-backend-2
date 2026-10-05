@@ -33,6 +33,7 @@ from app.models.student_class_membership import StudentClassMembership
 from app.models.teacher import Teacher
 from app.schemas.teacher import ClassProgressResponse
 from app.services.cache import NS_TEACHER_PROGRESS, cached_call
+from app.utils.subjects import coerce_subject
 
 logger = logging.getLogger(__name__)
 
@@ -53,25 +54,54 @@ class TeacherProgressService:
     def from_settings(cls, settings: Settings) -> "TeacherProgressService":
         return cls()
 
-    async def summarize(self, *, teacher_user_id: uuid.UUID | None) -> ClassProgressResponse:
+    async def summarize(
+        self,
+        *,
+        teacher_user_id: uuid.UUID | None,
+        class_id: uuid.UUID | None = None,
+        subject: str | None = None,
+        term: int | None = None,
+    ) -> ClassProgressResponse:
+        # `term` is accepted for forward compatibility with the frontend
+        # contract but is currently a no-op: ChatMessage rows aren't tagged
+        # with an academic term, so there's no column to filter on yet.
         if teacher_user_id is None:
             # No caller identity → no cache key. Run the global-fallback path
             # without caching so we don't poison a shared key.
-            return await self._compute(teacher_user_id=None)
+            return await self._compute(
+                teacher_user_id=None, class_id=class_id, subject=subject
+            )
+
+        # Keep the unfiltered identifier byte-for-byte identical to the
+        # pre-filter cache key (``invalidate_teacher_progress`` and existing
+        # tests key off plain ``str(teacher_user_id)``); only append a
+        # filter suffix when a filter is actually supplied, so the common
+        # unfiltered dashboard call keeps hitting the same cache entry.
+        identifier = str(teacher_user_id)
+        if class_id is not None or subject is not None:
+            identifier = f"{identifier}:{class_id or ''}:{subject or ''}"
 
         async def _loader() -> dict:
-            response = await self._compute(teacher_user_id=teacher_user_id)
+            response = await self._compute(
+                teacher_user_id=teacher_user_id, class_id=class_id, subject=subject
+            )
             return response.model_dump(mode="json")
 
         data = await cached_call(
             namespace=NS_TEACHER_PROGRESS,
-            identifier=str(teacher_user_id),
+            identifier=identifier,
             ttl_seconds=self.CACHE_TTL_SECONDS,
             loader=_loader,
         )
         return ClassProgressResponse.model_validate(data)
 
-    async def _compute(self, *, teacher_user_id: uuid.UUID | None) -> ClassProgressResponse:
+    async def _compute(
+        self,
+        *,
+        teacher_user_id: uuid.UUID | None,
+        class_id: uuid.UUID | None = None,
+        subject: str | None = None,
+    ) -> ClassProgressResponse:
         period_end = datetime.now(timezone.utc)
         period_start = period_end - timedelta(days=self._period_days)
 
@@ -96,10 +126,16 @@ class TeacherProgressService:
                         )
                     ).scalar_one_or_none()
                     if teacher_row and teacher_row.classes:
-                        teacher_class_ids = [c.id for c in teacher_row.classes]
+                        classes = teacher_row.classes
+                        if class_id is not None:
+                            # Restrict to the requested class, but only if it's
+                            # actually one of this teacher's — never let a
+                            # class_id filter leak another teacher's data.
+                            classes = [c for c in classes if c.id == class_id]
+                        teacher_class_ids = [c.id for c in classes]
                         teacher_filter_pairs = [
                             ((c.subject or "").lower() or None, c.grade_level or None)
-                            for c in teacher_row.classes
+                            for c in classes
                         ]
                         scope = "teacher_classes"
 
@@ -156,6 +192,10 @@ class TeacherProgressService:
                             clauses.append(and_(*parts))
                     if clauses:
                         stmt = stmt.where(or_(*clauses))
+
+                if subject:
+                    canonical = coerce_subject(subject)
+                    stmt = stmt.where(ChatMessage.subject_hint == canonical)
 
                 stmt = stmt.order_by(ChatMessage.created_at.desc()).limit(500)
                 rows = (await session.execute(stmt)).all()

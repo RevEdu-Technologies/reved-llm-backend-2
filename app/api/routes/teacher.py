@@ -33,6 +33,7 @@ from app.api.dependencies import (
     get_lesson_plan_service,
     get_progress_service,
     get_quiz_service,
+    get_scheme_of_work_service,
 )
 from app.core.rate_limit import limiter, llm_limit_for_key, tiered_rate_limit_key
 from app.core.security import AuthenticatedUser, require_role
@@ -50,6 +51,7 @@ from app.schemas.teacher import (
     LessonNotesResponse,
     QuizRequest,
     QuizResponse,
+    SchemeOfWorkResponse,
     TeacherContentRequest,
     TeacherGenerationDetail,
     TeacherGenerationListResponse,
@@ -64,6 +66,7 @@ from app.services.teacher.feedback_service import TeacherFeedbackService
 from app.services.teacher.lesson_plan_service import TeacherLessonPlanService
 from app.services.teacher.progress_service import TeacherProgressService
 from app.services.teacher.quiz_service import TeacherQuizService
+from app.services.teacher.scheme_of_work_service import TeacherSchemeOfWorkService
 from app.utils.response_builder import success_response
 
 logger = logging.getLogger(__name__)
@@ -199,7 +202,7 @@ async def generate_content(
 ) -> StreamingResponse:
     async def _event_source():
         try:
-            async for delta in service.generate_stream(body):
+            async for delta in service.generate_stream(body, user_id=user.user_id):
                 yield format_openai_chunk(delta)
             yield OPENAI_SSE_DONE
         except Exception as exc:  # noqa: BLE001
@@ -353,16 +356,58 @@ async def get_teacher_generation(
         "Phase 1 view: aggregates student-side questions over the recent "
         "period (default 14 days) into by-subject and by-class counts plus "
         "the top recurring topics. Per-student mastery and time-on-task "
-        "land in a later phase when those signals are captured upstream."
+        "land in a later phase when those signals are captured upstream. "
+        "Optional filters: ``class_id`` (restrict to one of the teacher's "
+        "classes), ``subject`` (restrict to one subject). ``term`` is "
+        "accepted for forward compatibility but is currently a no-op — "
+        "student activity isn't tagged by term yet."
     ),
 )
 async def get_class_progress(
+    class_id: uuid.UUID | None = Query(default=None),
+    subject: str | None = Query(default=None),
+    term: int | None = Query(default=None, ge=1, le=3),
     service: TeacherProgressService = Depends(get_progress_service),
     user: AuthenticatedUser = Depends(require_role("teacher", "admin")),
 ) -> APIResponse[ClassProgressResponse]:
-    payload = await service.summarize(teacher_user_id=user.user_id)
+    payload = await service.summarize(
+        teacher_user_id=user.user_id,
+        class_id=class_id,
+        subject=subject,
+        term=term,
+    )
     return success_response(
         role="teacher",
         data=payload,
         message=f"Summarised {payload.total_student_questions} student question(s).",
+    )
+
+
+@router.get(
+    "/scheme-of-work",
+    response_model=APIResponse[SchemeOfWorkResponse],
+    summary="Weekly topic breakdown for a (subject, class, term)",
+    description=(
+        "Returns the term's teaching weeks with topic/subtopics/objectives "
+        "for one subject and class. Grounded in whatever textbook material "
+        "the corpus has for this subject/class plus general NERDC/WAEC/NECO "
+        "curriculum knowledge — see the response's ``note`` field. Unknown "
+        "subject/class combinations return ``200`` with an empty ``weeks`` "
+        "list rather than an error. Cached for 24h per (subject, class, term)."
+    ),
+)
+async def get_scheme_of_work(
+    subject: str = Query(..., examples=["Mathematics"]),
+    student_class: str = Query(..., examples=["SS1", "Primary 5", "JSS2"]),
+    term: int = Query(..., ge=1, le=3),
+    service: TeacherSchemeOfWorkService = Depends(get_scheme_of_work_service),
+    user: AuthenticatedUser = Depends(require_role("teacher", "admin")),
+) -> APIResponse[SchemeOfWorkResponse]:
+    payload = await service.get_weeks(
+        subject=subject, student_class=student_class, term=term
+    )
+    return success_response(
+        role="teacher",
+        data=payload,
+        message=f"{len(payload.weeks)} week(s) found.",
     )

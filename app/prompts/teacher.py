@@ -313,6 +313,41 @@ def build_content_markdown_prompt(
     )
 
 
+# --- Scheme of work --------------------------------------------------------
+
+
+def build_scheme_of_work_prompt(
+    *,
+    subject: str,
+    student_class: str,
+    term: int,
+    retrieval_results: Sequence[RetrievalResult],
+) -> str:
+    contexts = _format_contexts(retrieval_results)
+    return (
+        f"## Task\n"
+        f"Produce the term {term} scheme of work (weekly topic breakdown) for "
+        f"{subject} at {student_class} level, following standard Nigerian "
+        "curriculum pacing (NERDC for Primary/JSS, WAEC/NECO-aligned for SS).\n\n"
+        f"## Contexts (textbook material available for this subject/class)\n{contexts}\n\n"
+        f"## Output\n"
+        "Return STRICT JSON with this shape (no markdown, no prose outside JSON):\n"
+        "{\n"
+        '  "weeks": [\n'
+        '    {"week": 1, "topic": "...", "subtopics": ["..."], "objectives": ["..."]}\n'
+        "  ]\n"
+        "}\n"
+        "- Number weeks sequentially starting at 1. Count ONLY teaching weeks — "
+        "do not include mid-term break as a week.\n"
+        "- A typical term is 11-13 teaching weeks; the last 1-2 weeks should be "
+        '  "Revision" and/or "Examination" (subtopics/objectives may be empty for these).\n'
+        "- Order topics in the sequence a teacher would actually cover them.\n"
+        "- Each topic should have 1-4 subtopics and 1-3 objectives.\n"
+        "- If the contexts don't cover a week's topic, use well-established "
+        "  curriculum knowledge for this subject/class/term rather than leaving it out.\n"
+    )
+
+
 __all__ = [
     "TEACHER_SYSTEM_PROMPT",
     "TEACHER_CONTENT_SYSTEM_PROMPT",
@@ -320,4 +355,5 @@ __all__ = [
     "build_feedback_prompt",
     "build_lesson_notes_prompt",
     "build_quiz_prompt",
+    "build_scheme_of_work_prompt",
 ]

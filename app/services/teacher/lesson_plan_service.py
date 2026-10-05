@@ -173,6 +173,8 @@ class TeacherLessonPlanService:
             topic=request.topic,
             subject=request.subject,
             student_class=request.student_class,
+            term=request.term,
+            week=request.week,
             learning_objectives=[
                 str(o).strip()
                 for o in (payload.get("learning_objectives") or [])
@@ -202,6 +204,8 @@ class TeacherLessonPlanService:
             subject=request.subject,
             student_class=request.student_class,
             topic=request.topic,
+            term=request.term,
+            week=request.week,
             request_payload=request,
             response_payload=response_obj,
             sources=sources,
@@ -305,6 +309,8 @@ class TeacherLessonPlanService:
             topic=request.topic,
             subject=request.subject,
             student_class=request.student_class,
+            term=request.term,
+            week=request.week,
             learning_objectives=[
                 str(o).strip()
                 for o in (payload.get("learning_objectives") or [])
@@ -337,6 +343,8 @@ class TeacherLessonPlanService:
             subject=request.subject,
             student_class=request.student_class,
             topic=request.topic,
+            term=request.term,
+            week=request.week,
             request_payload=request,
             response_payload=response_obj,
             sources=sources,

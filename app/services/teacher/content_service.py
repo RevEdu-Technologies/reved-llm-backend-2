@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -25,6 +26,7 @@ from app.prompts.teacher import (
 )
 from app.rag.retrieval.retriever import PineconeRetriever
 from app.schemas.teacher import TeacherContentRequest
+from app.services.teacher._persistence import persist_generation
 from app.utils.subjects import normalize_subject
 
 logger = logging.getLogger(__name__)
@@ -63,12 +65,19 @@ class TeacherContentService:
     async def generate_stream(
         self,
         request: TeacherContentRequest,
+        *,
+        user_id: uuid.UUID | None = None,
     ) -> AsyncIterator[str]:
         """Yield markdown deltas for the requested artefact.
 
         Retrieval + prompt building run up front; the LLM stream is then
         forwarded delta-by-delta. Raises :class:`UpstreamError` on a
         provider failure so the route can emit a terminal error frame.
+
+        The accumulated markdown is persisted as a ``content`` generation
+        (best-effort — a persistence failure never breaks the stream) once
+        it completes, carrying ``term``/``week`` when supplied, so it shows
+        up in ``GET /teacher/generations`` alongside lesson notes and quizzes.
         """
 
         student_class = request.student_class
@@ -108,14 +117,32 @@ class TeacherContentService:
             retrieval_results=results,
         )
 
+        accumulated: list[str] = []
         try:
             async for delta in self._llm_client.generate_stream(
                 system_prompt=TEACHER_CONTENT_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 max_completion_tokens=_CONTENT_MAX_TOKENS,
             ):
+                accumulated.append(delta)
                 yield delta
         except Exception as exc:  # noqa: BLE001
             raise UpstreamError(
                 "Content generation failed at the LLM step."
             ) from exc
+
+        sources = sorted({r.source_file for r in results if r.source_file})
+        await persist_generation(
+            user_id=user_id,
+            conversation_id=uuid.uuid4(),
+            generation_type="content",
+            title=f"{request.contentType.replace('_', ' ').title()}: {request.topic}",
+            subject=request.subject,
+            student_class=student_class,
+            topic=request.topic,
+            term=request.term,
+            week=request.week,
+            request_payload=request,
+            response_payload={"markdown": "".join(accumulated)},
+            sources=sources,
+        )
