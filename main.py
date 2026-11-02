@@ -56,14 +56,6 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(settings.cors_allowed_origins),
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
-    )
-
     # RequestLogMiddleware sits *inside* RequestIdMiddleware so the
     # access-log line carries the bound request_id; the trade-off is
     # that requests denied by SlowAPI (added below) don't reach
@@ -98,6 +90,20 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)
+
+    # CORS is added last so it is the outermost middleware: responses that
+    # other middleware produce on their own (SlowAPI's 429, for example) still
+    # carry Access-Control-Allow-Origin. Without it the browser hides the real
+    # status and the frontend can't tell a rate limit or error from an outage.
+    # Unhandled 500s are answered by Starlette's ServerErrorMiddleware, which
+    # always sits outside this; error_handlers adds the header for those.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_allowed_origins),
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
     register_error_handlers(app)
     app.include_router(api_router)

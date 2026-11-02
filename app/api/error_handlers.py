@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.config import ConfigurationError
+from app.core.config import ConfigurationError, get_settings
 from app.core.errors import RevEdError
 from app.core.i18n import negotiate_language, translate
 from app.llm.client import LLMClientError
@@ -136,4 +136,13 @@ def register_error_handlers(app: FastAPI) -> None:
             code="internal_error",
             message=translate("error.internal", _lang(request)),
         )
-        return _json(envelope, 500)
+        response = _json(envelope, 500)
+        # This handler runs in Starlette's ServerErrorMiddleware, outside
+        # CORSMiddleware, so add the CORS headers here. Otherwise browsers
+        # report a 500 as a CORS failure and the frontend can't show it.
+        origin = request.headers.get("origin")
+        if origin and origin in get_settings().cors_allowed_origins:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Vary"] = "Origin"
+        return response
